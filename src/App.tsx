@@ -417,6 +417,11 @@ export default function App() {
         ]
         setMessages((prev) => [...prev.slice(-60), { id: Date.now(), from: "SYS", text: draws[Math.floor(Math.random() * draws.length)] }])
       }
+      // If betting is disabled, start next game immediately (no wait/modal)
+      if (!betEnabled) {
+        onReset(true, true)
+        return () => {}
+      }
       const id = window.setTimeout(() => {
         onReset(true)
       }, 8000)
