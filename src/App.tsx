@@ -103,6 +103,14 @@ export default function App() {
   const [streak, setStreak] = useState(0)
   const resetTimer = useRef<number | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
+  // Experimental modes for Human vs AI
+  const [mode, setMode] = useState<'normal'|'blind-skip'|'drunken'|'chaos'|'block'|'undo'>('normal')
+  const [humanAction, setHumanAction] = useState<'place'|'block'|'undo'>('place')
+  const [tempBlocked, setTempBlocked] = useState<number | null>(null) // blocks next player's options once
+  const [chaosTriggered, setChaosTriggered] = useState(false)
+  const [lastX, setLastX] = useState<number | null>(null)
+  const [lastO, setLastO] = useState<number | null>(null)
+  const chaosIntervalRef = useRef<number | null>(null)
 
   const { winner, line } = useMemo(() => calculateWinner(board), [board])
   const gameOver = !!winner || isBoardFull(board)
@@ -123,14 +131,53 @@ export default function App() {
           : "AI O thinking..."
 
   function handleClick(i: number) {
-    if (board[i] || gameOver || !xIsNext || showBet) return
+    if (gameOver || !xIsNext || showBet) return
     const next = board.slice()
-    next[i] = "X"
-    setBoard(next)
-    setXIsNext(false)
-    setSuggestion(null)
-    setMoveCount((c) => c + 1)
-    if (soundEnabled) playClick('X')
+    const isBlocked = tempBlocked === i
+    const placeAt = (idx: number | null) => {
+      if (idx == null) return
+      next[idx] = 'X'
+      setBoard(next)
+      setLastX(idx)
+      setXIsNext(false)
+      setSuggestion(null)
+      setMoveCount((c) => c + 1)
+      if (soundEnabled) playClick('X')
+      // consume any block targeted at human
+      if (tempBlocked !== null) setTempBlocked(null)
+    }
+    if (mode === 'blind-skip') {
+      if (!isBlocked && !board[i]) placeAt(i)
+      else setXIsNext(false)
+      return
+    }
+    if (mode === 'drunken') {
+      const empties: number[] = next.map((v, idx) => (v == null && idx !== tempBlocked ? idx : -1)).filter(v => v>=0)
+      const target = empties.length ? empties[Math.floor(Math.random()*empties.length)] : null
+      placeAt(target)
+      return
+    }
+    if (mode === 'block' && humanAction === 'block') {
+      if (!board[i] && tempBlocked === null) {
+        setTempBlocked(i)
+        setXIsNext(false)
+      } else {
+        setXIsNext(false)
+      }
+      return
+    }
+    if (mode === 'undo' && humanAction === 'undo') {
+      if (lastO !== null) {
+        next[lastO] = null
+        setBoard(next)
+        setLastO(null)
+        setXIsNext(false)
+      }
+      return
+    }
+    if (!isBlocked && !board[i]) {
+      placeAt(i)
+    }
   }
 
   // Drive turns: if auto, both sides are AI. If not auto, only O is AI.
@@ -145,7 +192,7 @@ export default function App() {
       // Difficulty-aware move selection
       const b = board.slice()
 
-      const empties = () => b.reduce<number[]>((acc, v, i) => (v ? acc : (acc.push(i), acc)), [])
+      const empties = () => b.reduce<number[]>((acc, v, i) => (v ? acc : (i === tempBlocked ? acc : (acc.push(i), acc))), [])
       const randomMove = (): number | null => {
         const e = empties()
         if (!e.length) return null
@@ -182,7 +229,37 @@ export default function App() {
       }
 
       const diff = betEnabled ? 'easy' : (current === 'X' ? difficultyX : difficultyO)
-      const move = pickByDifficulty(current, diff)
+      let move = pickByDifficulty(current, diff)
+      // Mode-specific AI behaviors
+      if (mode === 'block' && current === 'O') {
+        // Prefer to block human's immediate win
+        const blockIdx = findWinningMove('X')
+        if (blockIdx !== null && tempBlocked === null) {
+          setTempBlocked(blockIdx)
+          setXIsNext((p)=>!p)
+          setAiThinking(false)
+          return
+        }
+      }
+      if (mode === 'undo' && current === 'O' && lastX !== null) {
+        // If human has immediate win, try undo
+        const winHuman = findWinningMove('X')
+        if (winHuman !== null) {
+          const saved = b[lastX]
+          b[lastX] = null
+          const winAfterUndo = findWinningMove('X')
+          b[lastX] = saved
+          if (winAfterUndo === null) {
+            const nextB = board.slice()
+            nextB[lastX] = null
+            setBoard(nextB)
+            setLastX(null)
+            setXIsNext((p)=>!p)
+            setAiThinking(false)
+            return
+          }
+        }
+      }
       if (move !== null) {
         // fun chat line for the AI deciding this move
         const row = Math.floor(move / 3) + 1
@@ -331,6 +408,7 @@ export default function App() {
         const next = b.slice()
         next[move] = current
         setBoard(next)
+        if (current === 'O') setLastO(move); else setLastX(move)
         setMoveCount((c) => c + 1)
         if (soundEnabled) playClick(current)
       }
@@ -417,10 +495,14 @@ export default function App() {
         ]
         setMessages((prev) => [...prev.slice(-60), { id: Date.now(), from: "SYS", text: draws[Math.floor(Math.random() * draws.length)] }])
       }
-      // If betting is disabled, start next game immediately (no wait/modal)
+      // If betting is disabled, wait briefly so winner + line are visible
       if (!betEnabled) {
-        onReset(true, true)
-        return () => {}
+        const tid = window.setTimeout(() => {
+          onReset(true, true)
+        }, 2500)
+        return () => {
+          window.clearTimeout(tid)
+        }
       }
       const id = window.setTimeout(() => {
         onReset(true)
@@ -431,6 +513,85 @@ export default function App() {
         resetTimer.current = null
       }
   }, [gameOver])
+
+  // Chaos mode: mid-game flip and random fill (once)
+  useEffect(() => {
+    if (mode !== 'chaos' || chaosTriggered || gameOver) return
+    // trigger around mid-game when a few moves have happened
+    if (moveCount >= 3) {
+      const newB = board.slice()
+      // fill empties randomly
+      for (let i=0;i<9;i++) {
+        if (newB[i] == null) newB[i] = Math.random()<0.5 ? 'X' : 'O'
+      }
+      // swap X<->O
+      for (let i=0;i<9;i++) {
+        newB[i] = newB[i] === 'X' ? 'O' : 'X'
+      }
+      setBoard(newB)
+      setLastX(null); setLastO(null)
+      setChaosTriggered(true)
+    }
+  }, [mode, chaosTriggered, moveCount, gameOver, board])
+
+  // In Auto mode, restrict to normal to avoid odd loops from experimental modes
+  useEffect(() => {
+    if (auto && mode !== 'normal') setMode('normal')
+  }, [auto])
+
+  // Chaos mode: keep changing board every few seconds
+  useEffect(() => {
+    if (mode !== 'chaos' || gameOver) {
+      if (chaosIntervalRef.current) {
+        window.clearInterval(chaosIntervalRef.current)
+        chaosIntervalRef.current = null
+      }
+      return
+    }
+    const rotateMap = [6,3,0,7,4,1,8,5,2]
+    const mirrorMap = [2,1,0,5,4,3,8,7,6]
+    const mutateOnce = () => {
+      setBoard(prev => {
+        const b = prev.slice() as (typeof prev)
+        const choice = Math.floor(Math.random()*4)
+        if (choice === 0) {
+          // swap X <-> O
+          for (let i=0;i<9;i++) b[i] = b[i] === 'X' ? 'O' : b[i] === 'O' ? 'X' : b[i]
+        } else if (choice === 1) {
+          // rotate 90
+          const r: typeof b = Array(9).fill(null)
+          for (let i=0;i<9;i++) r[i] = b[rotateMap[i]]
+          return r
+        } else if (choice === 2) {
+          // mirror horizontally
+          const r: typeof b = Array(9).fill(null)
+          for (let i=0;i<9;i++) r[i] = b[mirrorMap[i]]
+          return r
+        } else {
+          // random flips/swaps
+          for (let k=0;k<2;k++) {
+            const a = Math.floor(Math.random()*9)
+            const v = b[a]
+            if (v == null && Math.random() < 0.3) {
+              b[a] = Math.random()<0.5 ? 'X' : 'O'
+            } else if (v != null && Math.random() < 0.5) {
+              b[a] = v === 'X' ? 'O' : 'X'
+            }
+          }
+        }
+        return b
+      })
+      setLastX(null); setLastO(null)
+      setTempBlocked(null)
+    }
+    // start after a short delay, then every 3s
+    mutateOnce()
+    chaosIntervalRef.current = window.setInterval(mutateOnce, 3000)
+    return () => {
+      if (chaosIntervalRef.current) window.clearInterval(chaosIntervalRef.current)
+      chaosIntervalRef.current = null
+    }
+  }, [mode, gameOver])
 
   function onReset(randomizeStarter = false, skipBet = false) {
     const startX = randomizeStarter ? Math.random() < 0.5 : true
@@ -547,6 +708,51 @@ export default function App() {
             </div>
           </CardHeader>
           <CardContent className="pt-0">
+            {/* Mode selector (human vs AI) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground w-full">
+                <span className="whitespace-nowrap">Mode</span>
+                <select
+                  className="glass-btn border rounded-md px-2 py-1 text-xs bg-transparent w-full"
+                  value={mode}
+                  onChange={(e)=>setMode(e.target.value as any)}
+                  disabled={auto}
+                >
+                  <option value="normal">Normal</option>
+                  <option value="blind-skip">Blind (skip on wrong)</option>
+                  <option value="drunken">Drunken Human</option>
+                  <option value="chaos">Chaos Swap</option>
+                  <option value="block">Block or Place</option>
+                  <option value="undo">Undo Opponent</option>
+                </select>
+              </label>
+              {mode === 'block' && !auto && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground w-full">
+                  <span className="whitespace-nowrap">Your Action</span>
+                  <select
+                    className="glass-btn border rounded-md px-2 py-1 text-xs bg-transparent w-full"
+                    value={humanAction}
+                    onChange={(e)=>setHumanAction(e.target.value as any)}
+                  >
+                    <option value="place">Place</option>
+                    <option value="block">Block</option>
+                  </select>
+                </label>
+              )}
+              {mode === 'undo' && !auto && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground w-full">
+                  <span className="whitespace-nowrap">Your Action</span>
+                  <select
+                    className="glass-btn border rounded-md px-2 py-1 text-xs bg-transparent w-full"
+                    value={humanAction}
+                    onChange={(e)=>setHumanAction(e.target.value as any)}
+                  >
+                    <option value="place">Place</option>
+                    <option value="undo">Undo</option>
+                  </select>
+                </label>
+              )}
+            </div>
             {/* Betting toggle + Difficulty selectors */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
               <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground w-full">
@@ -609,35 +815,42 @@ export default function App() {
                 <RotateCcw className="mr-2 h-4 w-4" /> Reset
               </Button>
             </div>
-            <div className="mx-auto w-full max-w-[420px] grid grid-cols-3 gap-3 sm:gap-4">
-              {board.map((value, i) => {
-                const isWinning = line?.includes(i)
-                const isLossCell = isWinning && lastBetOutcome === 'wrong' && !!winner
-                const isSuggested = suggestion === i
-                return (
-                  <Button
-                    key={i}
-                    variant="ghost"
-                    size="board"
-                    onClick={() => handleClick(i)}
-                    disabled={!!value || gameOver || aiThinking || auto || showBet}
-                    className={cn(
-                      "text-4xl sm:text-5xl font-semibold rounded-xl transition-all glass-btn",
-                      "hover:scale-[1.02] active:scale-[0.98] shadow-sm border",
-                      // stronger grid lines especially in dark mode
-                      "border-black/10 hover:border-black/20 dark:border-white/15 dark:hover:border-white/25",
-                      value === "X" && "text-primary",
-                      value === "O" && "text-rose-600 dark:text-rose-400",
-                      isWinning && !isLossCell && "ring-4 ring-emerald-500",
-                      isLossCell && "ring-4 ring-rose-500 bg-rose-500/10 anim-lose",
-                      isSuggested && "ring-2 ring-primary animate-pulse"
-                    )}
-                  >
-                    <span className={cn("inline-block font-sans tracking-tight", value && "animate-in fade-in-0 zoom-in-95 duration-150")}>{value === "X" ? "×" : value === "O" ? "○" : ""}</span>
-                  </Button>
-                )
-              })}
-            </div>
+            {(() => {
+              const blindActive = mode === 'blind-skip' && xIsNext && !auto
+              return (
+                <div className="mx-auto w-full max-w-[420px]">
+                  <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                    {board.map((value, i) => {
+                      const isWinning = line?.includes(i)
+                      const isLossCell = isWinning && lastBetOutcome === 'wrong' && !!winner
+                      const isSuggested = suggestion === i
+                      const showMark = (!blindActive) || gameOver
+                      return (
+                        <Button
+                          key={i}
+                          variant="ghost"
+                          size="board"
+                          onClick={() => handleClick(i)}
+                          disabled={(mode==='blind-skip' ? false : !!value) || gameOver || aiThinking || auto || showBet}
+                          className={cn(
+                            "text-4xl sm:text-5xl font-semibold rounded-xl transition-all glass-btn",
+                            "hover:scale-[1.02] active:scale-[0.98] shadow-sm border",
+                            "border-black/10 hover:border-black/20 dark:border-white/15 dark:hover:border-white/25",
+                            value === "X" && "text-primary",
+                            value === "O" && "text-rose-600 dark:text-rose-400",
+                            isWinning && !isLossCell && "ring-4 ring-emerald-500",
+                            isLossCell && "ring-4 ring-rose-500 bg-rose-500/10 anim-lose",
+                            isSuggested && "ring-2 ring-primary animate-pulse"
+                          )}
+                        >
+                          <span className={cn("inline-block font-sans tracking-tight", value && showMark && "animate-in fade-in-0 zoom-in-95 duration-150")}>{showMark ? (value === "X" ? "×" : value === "O" ? "○" : "") : ""}</span>
+                        </Button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
 
