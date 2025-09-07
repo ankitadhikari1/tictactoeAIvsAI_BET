@@ -135,10 +135,10 @@ export default function App() {
 
   // Drive turns: if auto, both sides are AI. If not auto, only O is AI.
   useEffect(() => {
-    if (gameOver) return
+    if (gameOver) { setAiThinking(false); return }
     const current: Exclude<Mark, null> = xIsNext ? "X" : "O"
     const shouldAIMove = auto || (!auto && current === "O")
-    if (!shouldAIMove || showBet) return
+    if (!shouldAIMove || showBet) { setAiThinking(false); return }
 
     setAiThinking(true)
     const id = setTimeout(() => {
@@ -337,7 +337,7 @@ export default function App() {
       setXIsNext((p) => !p)
       setAiThinking(false)
     }, 650 + Math.floor(Math.random() * 550))
-    return () => clearTimeout(id)
+    return () => { clearTimeout(id); setAiThinking(false) }
   }, [auto, xIsNext, gameOver, board, moveCount, difficultyX, difficultyO, showBet])
 
   // Restart when the game ends (auto or manual)
