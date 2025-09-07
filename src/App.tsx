@@ -85,10 +85,10 @@ export default function App() {
   const [difficultyX, setDifficultyX] = useState<'easy'|'medium'|'hard'>("hard")
   const [difficultyO, setDifficultyO] = useState<'easy'|'medium'|'hard'>("hard")
   // Betting system
-  const [showBet, setShowBet] = useState(true)
+  const [showBet, setShowBet] = useState(false)
   const [betChoice, setBetChoice] = useState<Exclude<Mark, null> | null>(null)
   const [betSeconds, setBetSeconds] = useState(5)
-  const [betEnabled, setBetEnabled] = useState(true)
+  const [betEnabled, setBetEnabled] = useState(false)
   const [showResult, setShowResult] = useState(false)
   const [resultText, setResultText] = useState<string | null>(null)
   const [lastWinner, setLastWinner] = useState<Mark>(null)
