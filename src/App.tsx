@@ -84,7 +84,7 @@ export default function App() {
   const [moveCount, setMoveCount] = useState(0)
   const [difficultyX, setDifficultyX] = useState<'easy'|'medium'|'hard'>("hard")
   const [difficultyO, setDifficultyO] = useState<'easy'|'medium'|'hard'>("hard")
-  // Betting system
+  // Prediction system (labels only)
   const [showBet, setShowBet] = useState(false)
   const [betChoice, setBetChoice] = useState<Exclude<Mark, null> | null>(null)
   const [betSeconds, setBetSeconds] = useState(5)
@@ -115,7 +115,7 @@ export default function App() {
   const { winner, line } = useMemo(() => calculateWinner(board), [board])
   const gameOver = !!winner || isBoardFull(board)
   const status = showBet
-    ? `Place your bet… (${betSeconds}s)`
+    ? `Make your pick… (${betSeconds}s)`
     : winner
     ? winner === "X"
       ? auto ? "AI X wins!" : "You win!"
@@ -424,7 +424,7 @@ export default function App() {
       // resolve bet (no accuracy tracking)
       // show result popup (only if betting is enabled)
       const finalText = winner ? `${winner} wins!` : `Draw!`
-      const betText = betChoice ? (winner ? (betChoice === winner ? 'Bet correct ✅' : 'Bet wrong ❌') : 'No result') : 'No bet'
+      const betText = betChoice ? (winner ? (betChoice === winner ? 'Pick correct ✅' : 'Pick wrong ❌') : 'No result') : 'No pick'
       setResultText(`${finalText} • ${betText}`)
       setLastWinner(winner ?? null)
       setLastBetChoice(betChoice)
@@ -660,8 +660,8 @@ export default function App() {
           </h1>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <div className="hidden sm:flex items-center gap-1 glass-btn border rounded-md px-3 py-1.5">
-              <span className="opacity-70">Bank</span>
-              <span className="font-semibold text-foreground text-base sm:text-lg">₹{bank}</span>
+              <span className="opacity-70">Points</span>
+              <span className="font-semibold text-foreground text-base sm:text-lg">{bank}</span>
             </div>
             <button
               className="glass-btn border rounded-md px-2 py-1 inline-flex items-center gap-1"
@@ -688,7 +688,7 @@ export default function App() {
             </CardDescription>
             <div className="mt-1 text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
               <span className="inline-flex items-center gap-1">
-                Bet:
+                Pick:
                 <span className={cn(
                   "inline-flex items-center rounded-full px-2 py-0.5 border",
                   betChoice === 'X' ? 'bg-primary/20 text-primary border-primary/30' : 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30'
@@ -697,13 +697,13 @@ export default function App() {
                 </span>
               </span>
               {!showBet && betChoice && (
-                <span className="text-xs">• Betting on {betChoice}</span>
+                <span className="text-xs">• Picking {betChoice}</span>
               )}
               {!showBet && betChoice && (
-                <span className="text-xs">• Stake: ₹{currentStake}</span>
+                <span className="text-xs">• Stake: {currentStake}</span>
               )}
               {!showBet && betChoice && currentStake > 0 && (
-                <span className="text-xs">• Profit on win: +₹{currentStake + Math.max(0, streak)*5}</span>
+                <span className="text-xs">• Profit on win: +{currentStake + Math.max(0, streak)*5}</span>
               )}
             </div>
           </CardHeader>
@@ -753,10 +753,10 @@ export default function App() {
                 </label>
               )}
             </div>
-            {/* Betting toggle + Difficulty selectors */}
+            {/* Prediction toggle + Difficulty selectors */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
               <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground w-full">
-                <span className="whitespace-nowrap">Betting</span>
+                <span className="whitespace-nowrap">Predictions</span>
                 <Switch
                   checked={betEnabled}
                   onCheckedChange={(on) => {
@@ -953,7 +953,7 @@ export default function App() {
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div className="rounded-md border p-2">
-                  <div className="opacity-70 mb-1">Your Bet</div>
+                  <div className="opacity-70 mb-1">Your Pick</div>
                   <div>
                     {lastBetChoice ? (
                       <span className={cn(
@@ -975,7 +975,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              <div className="mt-2 text-xs text-muted-foreground italic">Bet next round</div>
+              <div className="mt-2 text-xs text-muted-foreground italic">Predict next round</div>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <Button
                   variant="secondary"
@@ -987,7 +987,7 @@ export default function App() {
                     onReset(true, false) // show betting as usual
                   }}
                 >
-                  Bet Next Round
+                  Predict Next Round
                 </Button>
                 <Button
                   variant="outline"
@@ -1005,12 +1005,12 @@ export default function App() {
             </div>
           </div>
         )}
-        {/* Betting overlay */}
+        {/* Prediction overlay */}
         {showBet && (
           <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm p-4">
             <div className="glass-card rounded-2xl shadow-xl w-full max-w-sm p-5">
               <div className="mb-3">
-                <h2 className="text-xl font-semibold">Place your bet</h2>
+                <h2 className="text-xl font-semibold">Make your pick</h2>
                 <p className="text-xs text-muted-foreground">Who will win this match? Auto-select in {betSeconds}s</p>
               </div>
               {/* Wager chips (default 0) */}
@@ -1053,7 +1053,7 @@ export default function App() {
                   const preview = allIn ? bank : Math.min(bank, (wager as number) * multiplier)
                   const bonus = preview > 0 ? Math.max(0, streak) * 5 : 0
                   const profit = preview > 0 ? preview + bonus : 0
-                  return `Stake: ₹${preview} • Profit on win: +₹${profit}`
+                  return `Stake: ${preview} • Profit on win: +${profit}`
                 })()}
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1064,7 +1064,7 @@ export default function App() {
                   setBank((b) => Math.max(0, b - stake))
                   setBetChoice('X'); setShowBet(false)
                 }} className="w-full" variant="secondary" disabled={bank <= 0}>
-                  Bet {allIn ? 'All‑in' : wager * multiplier} on X
+                  Pick {allIn ? 'All‑in' : wager * multiplier} on X
                 </Button>
                 <Button onClick={() => {
                   const stake = allIn ? bank : Math.min(bank, wager * multiplier)
@@ -1072,7 +1072,7 @@ export default function App() {
                   setBank((b) => Math.max(0, b - stake))
                   setBetChoice('O'); setShowBet(false)
                 }} className="w-full" variant="outline" disabled={bank <= 0}>
-                  Bet {allIn ? 'All‑in' : wager * multiplier} on O
+                  Pick {allIn ? 'All‑in' : wager * multiplier} on O
                 </Button>
               </div>
             </div>
